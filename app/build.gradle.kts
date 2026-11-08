@@ -102,6 +102,7 @@ dependencies {
   implementation(libs.zxing.core)
   implementation(libs.mlkit.barcode.scanning)
   implementation(libs.mlkit.text.recognition)
+  implementation(libs.play.services.ads)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
   // Uncomment to use Firestore:

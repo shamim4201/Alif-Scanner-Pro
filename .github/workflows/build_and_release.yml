@@ -1,0 +1,62 @@
+name: Build Alif Scanner Pro (APK & AAB)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build APK and Play Store AAB
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Grant execute permission for gradlew
+        run: |
+          if [ -f gradlew ]; then chmod +x gradlew; fi
+
+      - name: Build Debug & Release APK
+        run: |
+          if [ -f gradlew ]; then
+            ./gradlew :app:assembleDebug
+          else
+            gradle :app:assembleDebug
+          fi
+
+      - name: Build Google Play Android App Bundle (AAB)
+        run: |
+          if [ -f gradlew ]; then
+            ./gradlew :app:bundleDebug
+          else
+            gradle :app:bundleDebug
+          fi
+
+      # 1. Download Option 1: APK File (Direct Install on Phones)
+      - name: Upload Phone Installable APK (Option 1)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Alif-Scanner-Pro-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # 2. Download Option 2: AAB File (For Google Play Store Release)
+      - name: Upload Google Play Store AAB Bundle (Option 2)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Alif-Scanner-Pro-GooglePlay-AAB
+          path: app/build/outputs/bundle/debug/app-debug.aab
+          if-no-files-found: error
+          retention-days: 30

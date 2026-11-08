@@ -50,17 +50,18 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        com.example.ads.AdManager.initialize(this)
 
         setContent {
             ScannerProTheme {
-                ScannerApp(viewModel = viewModel)
+                ScannerApp(viewModel = viewModel, activity = this)
             }
         }
     }
 }
 
 @Composable
-fun ScannerApp(viewModel: ScannerViewModel) {
+fun ScannerApp(viewModel: ScannerViewModel, activity: ComponentActivity) {
     val currentTab by viewModel.currentTab.collectAsState()
     val isPremium by viewModel.preferences.isPremium.collectAsState()
     val premiumPlan by viewModel.preferences.premiumPlan.collectAsState()
@@ -254,6 +255,9 @@ fun ScannerApp(viewModel: ScannerViewModel) {
                                 viewModel.saveDocument(title, folder, saveAsPdf, isPriv) {
                                     viewModel.closeDocumentEditor()
                                     viewModel.closeScanner()
+                                    if (!isPremium) {
+                                        com.example.ads.AdManager.showInterstitialAd(activity) {}
+                                    }
                                 }
                             },
                             onClose = { viewModel.closeDocumentEditor() }
