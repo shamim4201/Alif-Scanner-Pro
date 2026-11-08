@@ -27,7 +27,20 @@ jobs:
         run: |
           if [ -f gradlew ]; then chmod +x gradlew; fi
 
-      - name: Build Debug & Release APK
+      # Fix: Decode debug.keystore from debug.keystore.base64 for signing validation
+      - name: Restore Keystores for Signing
+        run: |
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          fi
+          if [ ! -f debug.keystore ]; then
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          if [ ! -f my-upload-key.jks ]; then
+            cp debug.keystore my-upload-key.jks
+          fi
+
+      - name: Build Debug APK
         run: |
           if [ -f gradlew ]; then
             ./gradlew :app:assembleDebug
