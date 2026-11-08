@@ -1,0 +1,6 @@
+{
+  "name": "Alif Scanner Pro",
+  "description": "Premium mobile scanner app combining QR, barcode, document scanning, OCR, and advanced PDF tools.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

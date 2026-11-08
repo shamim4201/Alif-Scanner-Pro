@@ -1,0 +1,17 @@
+<resources>
+    <string name="app_name">Alif Scanner Pro</string>
+    <string name="nav_home">হোম</string>
+    <string name="nav_history">হিস্টোরি</string>
+    <string name="nav_premium">প্রিমিয়াম</string>
+    <string name="nav_settings">সেটিংস</string>
+    <string name="action_scan">স্ক্যান</string>
+    <string name="scan_qr_title">QR কোড স্ক্যান</string>
+    <string name="scan_barcode_title">বারকোড স্ক্যান</string>
+    <string name="scan_doc_title">ডকুমেন্ট স্ক্যান</string>
+    <string name="scan_ocr_title">টেক্সট বের করুন (OCR)</string>
+    <string name="create_pdf_title">PDF তৈরি করুন</string>
+    <string name="create_qr_title">QR কোড বানান</string>
+    <string name="scan_id_title">আইডি কার্ড স্ক্যান</string>
+    <string name="import_image_title">ছবি ইম্পোর্ট</string>
+    <string name="history_title">স্ক্যান ইতিহাস</string>
+</resources>

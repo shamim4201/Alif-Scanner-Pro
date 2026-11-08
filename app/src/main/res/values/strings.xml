@@ -1,0 +1,17 @@
+<resources>
+    <string name="app_name">Alif Scanner Pro</string>
+    <string name="nav_home">Home</string>
+    <string name="nav_history">History</string>
+    <string name="nav_premium">Premium</string>
+    <string name="nav_settings">Settings</string>
+    <string name="action_scan">Scan</string>
+    <string name="scan_qr_title">Scan QR Code</string>
+    <string name="scan_barcode_title">Scan Barcode</string>
+    <string name="scan_doc_title">Scan Document</string>
+    <string name="scan_ocr_title">Extract Text (OCR)</string>
+    <string name="create_pdf_title">Create PDF</string>
+    <string name="create_qr_title">Create QR Code</string>
+    <string name="scan_id_title">Scan ID Card</string>
+    <string name="import_image_title">Import Image</string>
+    <string name="history_title">Scan History</string>
+</resources>
