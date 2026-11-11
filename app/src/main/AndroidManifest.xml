@@ -22,6 +22,11 @@
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="ca-app-pub-5838132584781260~8987824372" />
 
+        <!-- Auto-download ML Kit OCR and Barcode models via Google Play Services -->
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="ocr,barcode" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
