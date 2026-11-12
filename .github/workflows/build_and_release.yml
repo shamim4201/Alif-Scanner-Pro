@@ -40,6 +40,14 @@ jobs:
             cp debug.keystore my-upload-key.jks
           fi
 
+      - name: Build Debug APK (Alternative Direct Install)
+        run: |
+          if [ -f gradlew ]; then
+            ./gradlew :app:assembleDebug
+          else
+            gradle :app:assembleDebug
+          fi
+
       - name: Build Optimized Release APK (< 15 MB)
         run: |
           if [ -f gradlew ]; then
@@ -56,17 +64,26 @@ jobs:
             gradle :app:bundleRelease
           fi
 
-      # 1. Download Option 1: APK File (Direct Install on Phones, ~5 MB)
-      - name: Upload Phone Installable APK (Option 1)
+      # 1. Download Option 1: Release APK (Super light ~4.8 MB)
+      - name: Upload Release APK (Option 1 - 4.8MB)
         uses: actions/upload-artifact@v4
         with:
-          name: Alif-Scanner-Pro-Phone-APK-under-15MB
+          name: Alif-Scanner-Pro-Release-APK-4MB
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
 
-      # 2. Download Option 2: AAB File (For Google Play Store Release, ~9 MB)
-      - name: Upload Google Play Store AAB Bundle (Option 2)
+      # 2. Download Option 2: Debug APK (Universal Install on any Android Phone)
+      - name: Upload Debug APK (Option 2 - Universal Install)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Alif-Scanner-Pro-Debug-APK-Universal
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # 3. Download Option 3: AAB File (For Google Play Store Release)
+      - name: Upload Google Play Store AAB Bundle (Option 3)
         uses: actions/upload-artifact@v4
         with:
           name: Alif-Scanner-Pro-GooglePlay-AAB
