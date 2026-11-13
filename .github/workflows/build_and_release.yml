@@ -43,13 +43,47 @@ jobs:
             cp debug.keystore my-upload-key.jks
           fi
 
-      - name: Build Debug APK, Release APK & Play Store AAB
+      - name: Build Debug APK (Universal Install)
         run: |
-          if [ -f gradlew ]; then
-            ./gradlew :app:assembleDebug :app:assembleRelease :app:bundleRelease --no-daemon --no-configuration-cache --max-workers=2 -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" --stacktrace
-          else
-            gradle :app:assembleDebug :app:assembleRelease :app:bundleRelease --no-daemon --no-configuration-cache --max-workers=2 -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" --stacktrace
+          set -o pipefail
+          CMD="./gradlew"
+          if [ ! -f gradlew ]; then CMD="gradle"; fi
+          if ! $CMD :app:assembleDebug --no-daemon --no-configuration-cache --max-workers=2 -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" --stacktrace 2>&1 | tee debug-build.log; then
+            {
+              echo "### Debug Build Failed"
+              echo '```'
+              grep -E -A 8 "FAILURE:|What went wrong:|Execution failed|Caused by:" debug-build.log | head -n 60 || tail -n 50 debug-build.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
+
+      - name: Build Release APK & Play Store AAB
+        run: |
+          set -o pipefail
+          CMD="./gradlew"
+          if [ ! -f gradlew ]; then CMD="gradle"; fi
+          if ! $CMD :app:assembleRelease :app:bundleRelease --no-daemon --no-configuration-cache --max-workers=2 -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" --stacktrace 2>&1 | tee release-build.log; then
+            {
+              echo "### Release / AAB Build Failed"
+              echo '```'
+              grep -E -A 8 "FAILURE:|What went wrong:|Execution failed|Caused by:" release-build.log | head -n 60 || tail -n 50 release-build.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      # Upload build logs if failure occurs for instant inspection
+      - name: Upload Build Logs on Failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Build-Error-Logs
+          path: |
+            debug-build.log
+            release-build.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       # 1. Download Option 1: Release APK (Compact APK)
       - name: Upload Release APK (Option 1)
