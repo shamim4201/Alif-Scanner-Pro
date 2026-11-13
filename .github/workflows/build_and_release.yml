@@ -48,7 +48,7 @@ jobs:
           set -o pipefail
           CMD="./gradlew"
           if [ ! -f gradlew ]; then CMD="gradle"; fi
-          if ! $CMD :app:assembleDebug --no-daemon --no-configuration-cache --max-workers=2 -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8" -Pkotlin.compiler.execution.strategy=daemon --console=plain 2>&1 | tee debug-build.log; then
+          if ! $CMD :app:assembleDebug --no-daemon --no-configuration-cache --max-workers=2 -Dorg.gradle.jvmargs="-Xmx4g -Djava.awt.headless=true -Dfile.encoding=UTF-8" -Pkotlin.compiler.execution.strategy=daemon --console=plain 2>&1 | tee debug-build.log; then
             echo "================ EXACT DEBUG ERROR ================"
             grep -E -A 10 "FAILURE:|What went wrong:|Execution failed|Caused by:|^e: " debug-build.log | tail -n 40 || tail -n 40 debug-build.log
             echo "==================================================="
@@ -66,7 +66,7 @@ jobs:
           set -o pipefail
           CMD="./gradlew"
           if [ ! -f gradlew ]; then CMD="gradle"; fi
-          if ! $CMD :app:assembleRelease :app:bundleRelease --no-daemon --no-configuration-cache --max-workers=2 -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8" -Pkotlin.compiler.execution.strategy=daemon --console=plain 2>&1 | tee release-build.log; then
+          if ! $CMD :app:assembleRelease :app:bundleRelease --no-daemon --no-configuration-cache --max-workers=2 -Dorg.gradle.jvmargs="-Xmx4g -Djava.awt.headless=true -Dfile.encoding=UTF-8" -Pkotlin.compiler.execution.strategy=daemon --console=plain 2>&1 | tee release-build.log; then
             echo "=============== EXACT RELEASE ERROR ==============="
             grep -E -A 10 "FAILURE:|What went wrong:|Execution failed|Caused by:|^e: " release-build.log | tail -n 40 || tail -n 40 release-build.log
             echo "==================================================="
