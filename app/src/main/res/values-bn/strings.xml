@@ -14,4 +14,18 @@
     <string name="scan_id_title">আইডি কার্ড স্ক্যান</string>
     <string name="import_image_title">ছবি ইম্পোর্ট</string>
     <string name="history_title">স্ক্যান ইতিহাস</string>
+    <string name="auth_subtitle">আপনার গুগল (Gmail) অ্যাকাউন্ট দিয়ে সহজেই লগইন বা রেজিস্ট্রেশন করুন</string>
+    <string name="auth_feature_doc_title">স্মার্ট ডকুমেন্ট ও PDF স্ক্যানার</string>
+    <string name="auth_feature_doc_desc">অটো-ক্রপ, ফিল্টার, আইডি কার্ড ২-ইন-১ ও PDF টুলস</string>
+    <string name="auth_feature_qr_title">QR, বারকোড ও OCR টেক্সট</string>
+    <string name="auth_feature_qr_desc">দ্রুত স্ক্যানিং, QR তৈরি ও ছবি থেকে লেখা বের করা</string>
+    <string name="auth_feature_sync_title">গুগল অ্যাকাউন্ট সুরক্ষা</string>
+    <string name="auth_feature_sync_desc">শুধু জিমেইল দিয়ে নিরাপদ লগইন ও প্রোফাইল সিঙ্ক</string>
+    <string name="auth_continue_with_google">গুগল (Gmail) দিয়ে চালিয়ে যান</string>
+    <string name="auth_signing_in">গুগল দিয়ে লগইন হচ্ছে…</string>
+    <string name="auth_gmail_only_note">নতুন হলে আপনার জিমেইল দিয়ে অটোমেটিক রেজিস্ট্রেশন হয়ে যাবে</string>
+    <string name="settings_google_account">গুগল অ্যাকাউন্ট</string>
+    <string name="settings_sign_out">লগ আউট</string>
+    <string name="settings_sign_out_confirm_title">লগ আউট করবেন?</string>
+    <string name="settings_sign_out_confirm_msg">অ্যাপটি পুনরায় ব্যবহার করতে আপনার গুগল (Gmail) অ্যাকাউন্ট দিয়ে আবার লগইন করতে হবে।</string>
 </resources>

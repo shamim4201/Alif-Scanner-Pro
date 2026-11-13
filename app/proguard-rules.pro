@@ -18,3 +18,16 @@
 # ML Kit Vision & Recognition
 -keep class com.google.mlkit.** { *; }
 -dontwarn com.google.mlkit.**
+
+# Firebase Auth & Firestore
+-keep class com.google.firebase.** { *; }
+-keepclassmembers class * {
+    @com.google.firebase.firestore.PropertyName <fields>;
+    @com.google.firebase.firestore.PropertyName <methods>;
+}
+-keepclassmembers class com.example.model.** { *; }
+
+# Jetpack Credential Manager & Google Sign-In
+-keep class androidx.credentials.** { *; }
+-keep class com.google.android.libraries.identity.googleid.** { *; }
+-dontwarn androidx.credentials.**

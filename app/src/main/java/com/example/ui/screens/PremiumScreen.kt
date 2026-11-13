@@ -74,6 +74,9 @@ import com.example.ui.theme.ScannerEmerald
 fun PremiumScreen(
     isPremium: Boolean,
     currentPlan: String,
+    isSignedIn: Boolean = false,
+    currentUserEmail: String? = null,
+    onRequireLogin: (pendingPlan: String) -> Unit = {},
     onActivatePlan: (plan: String) -> Unit,
     onDeactivatePlan: () -> Unit
 ) {
@@ -241,12 +244,29 @@ fun PremiumScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        if (isSignedIn && !currentUserEmail.isNullOrBlank()) {
+            Text(
+                text = "Signed in as: $currentUserEmail",
+                fontSize = 12.sp,
+                color = ScannerEmerald,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 8.dp)
+            )
+        }
+
         // Subscribe / Activate Button
         Box(modifier = Modifier.padding(horizontal = 20.dp)) {
             Button(
                 onClick = {
-                    onActivatePlan(selectedTier)
-                    Toast.makeText(context, "Welcome to Alif Scanner Pro Premium!", Toast.LENGTH_SHORT).show()
+                    if (isSignedIn) {
+                        onActivatePlan(selectedTier)
+                        Toast.makeText(context, "Welcome to Alif Scanner Pro Premium!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        onRequireLogin(selectedTier)
+                    }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -275,8 +295,12 @@ fun PremiumScreen(
         ) {
             TextButton(
                 onClick = {
-                    onActivatePlan("lifetime")
-                    Toast.makeText(context, "Purchases restored successfully!", Toast.LENGTH_SHORT).show()
+                    if (isSignedIn) {
+                        onActivatePlan("lifetime")
+                        Toast.makeText(context, "Purchases restored successfully!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        onRequireLogin("lifetime")
+                    }
                 },
                 modifier = Modifier.testTag("btn_restore_purchases")
             ) {

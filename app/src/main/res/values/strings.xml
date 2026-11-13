@@ -14,4 +14,18 @@
     <string name="scan_id_title">Scan ID Card</string>
     <string name="import_image_title">Import Image</string>
     <string name="history_title">Scan History</string>
+    <string name="auth_subtitle">Sign in or register instantly with your Google account</string>
+    <string name="auth_feature_doc_title">Smart Document &amp; PDF Scanner</string>
+    <string name="auth_feature_doc_desc">Auto-crop, enhance filters, ID card 2-in-1 &amp; PDF tools</string>
+    <string name="auth_feature_qr_title">QR, Barcode &amp; OCR Text</string>
+    <string name="auth_feature_qr_desc">Instant code scanning, QR creator &amp; text extraction</string>
+    <string name="auth_feature_sync_title">Google Account Security</string>
+    <string name="auth_feature_sync_desc">One-tap Gmail sign-in keeps your profile synced safely</string>
+    <string name="auth_continue_with_google">Continue with Google</string>
+    <string name="auth_signing_in">Signing in with Google…</string>
+    <string name="auth_gmail_only_note">New users are automatically registered using Gmail</string>
+    <string name="settings_google_account">Google Account</string>
+    <string name="settings_sign_out">Sign Out</string>
+    <string name="settings_sign_out_confirm_title">Sign Out?</string>
+    <string name="settings_sign_out_confirm_msg">You will need to sign in again with your Google account to access Alif Scanner Pro.</string>
 </resources>

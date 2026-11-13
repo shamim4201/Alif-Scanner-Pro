@@ -1,0 +1,57 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated Google user profile for Alif Scanner Pro.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the signed-in Google user."
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Google account display name."
+        },
+        "email": {
+          "type": "string",
+          "description": "Google Gmail address."
+        },
+        "photoUrl": {
+          "type": "string",
+          "description": "Optional Google profile avatar URL."
+        },
+        "isPremium": {
+          "type": "boolean",
+          "description": "Whether the user has Pro plan active."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of registration (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last profile update (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "displayName",
+        "email",
+        "isPremium",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserProfile"
+      },
+      "description": "Stores each authenticated Google user's profile and registration record."
+    }
+  }
+}

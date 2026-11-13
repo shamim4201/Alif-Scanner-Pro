@@ -19,6 +19,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudDone
@@ -30,9 +33,11 @@ import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Policy
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material.icons.filled.WorkspacePremium
+import androidx.compose.material3.OutlinedButton
+import coil.compose.AsyncImage
+import com.google.firebase.auth.FirebaseUser
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -65,6 +70,8 @@ import com.example.ui.theme.ScannerCyanAccent
 @Composable
 fun SettingsScreen(
     preferences: UserPreferences,
+    currentUser: FirebaseUser? = null,
+    onSignOut: () -> Unit = {},
     onNavigatePremium: () -> Unit,
     onClearHistory: () -> Unit,
     onClearAllData: () -> Unit
@@ -86,6 +93,7 @@ fun SettingsScreen(
     var showTermsDialog by remember { mutableStateOf(false) }
     var showClearHistoryDialog by remember { mutableStateOf(false) }
     var showClearDataDialog by remember { mutableStateOf(false) }
+    var showSignOutDialog by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -102,6 +110,86 @@ fun SettingsScreen(
         )
 
         Spacer(modifier = Modifier.height(16.dp))
+
+        // Signed-in Google Account Card
+        if (currentUser != null) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("settings_google_account_card"),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                ),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        if (currentUser.photoUrl != null) {
+                            AsyncImage(
+                                model = currentUser.photoUrl,
+                                contentDescription = currentUser.displayName ?: "Profile",
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(CircleShape)
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .background(MaterialTheme.colorScheme.primary, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Filled.AccountCircle,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = currentUser.displayName?.takeIf { it.isNotBlank() } ?: "Google User",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = currentUser.email ?: "Signed in with Google",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = { showSignOutDialog = true },
+                        modifier = Modifier.testTag("btn_sign_out"),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.Logout,
+                            contentDescription = "Sign Out",
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Sign Out", fontSize = 12.sp)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+        }
 
         // Premium Status Card
         Card(
@@ -172,7 +260,7 @@ fun SettingsScreen(
                     onCheckedChange = { preferences.setVibrateOnScan(it) }
                 )
                 SettingsSwitchRow(
-                    icon = Icons.Filled.VolumeUp,
+                    icon = Icons.AutoMirrored.Filled.VolumeUp,
                     title = "Beep Sound on Scan",
                     subtitle = "Audio feedback confirmation",
                     checked = beep,
@@ -458,6 +546,34 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showClearDataDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Sign Out Confirmation Dialog
+    if (showSignOutDialog) {
+        AlertDialog(
+            onDismissRequest = { showSignOutDialog = false },
+            title = { Text("Sign Out?") },
+            text = { Text("You will need to sign in again with your Google (Gmail) account to continue using Alif Scanner Pro.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showSignOutDialog = false
+                        onSignOut()
+                    },
+                    modifier = Modifier.testTag("confirm_sign_out_button"),
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Sign Out")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSignOutDialog = false }) {
                     Text("Cancel")
                 }
             }
