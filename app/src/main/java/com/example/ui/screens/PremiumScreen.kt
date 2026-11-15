@@ -78,6 +78,7 @@ fun PremiumScreen(
     currentUserEmail: String? = null,
     onRequireLogin: (pendingPlan: String) -> Unit = {},
     onActivatePlan: (plan: String) -> Unit,
+    onRestorePurchases: () -> Unit = {},
     onDeactivatePlan: () -> Unit
 ) {
     val context = LocalContext.current
@@ -295,12 +296,7 @@ fun PremiumScreen(
         ) {
             TextButton(
                 onClick = {
-                    if (isSignedIn) {
-                        onActivatePlan("lifetime")
-                        Toast.makeText(context, "Purchases restored successfully!", Toast.LENGTH_SHORT).show()
-                    } else {
-                        onRequireLogin("lifetime")
-                    }
+                    onRestorePurchases()
                 },
                 modifier = Modifier.testTag("btn_restore_purchases")
             ) {

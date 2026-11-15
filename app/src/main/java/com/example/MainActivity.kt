@@ -1,12 +1,10 @@
 package com.example
 
-import android.graphics.ImageDecoder
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -16,9 +14,12 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -36,19 +37,15 @@ import com.example.auth.GoogleAuthHelper.authStateFlow
 import com.example.data.UserProfileRepository
 import com.example.model.ScanItem
 import com.example.model.ScanType
-import com.example.ui.screens.AuthScreen
-import com.google.firebase.Firebase
-import com.google.firebase.auth.FirebaseUser
-import com.google.firebase.auth.auth
-import kotlinx.coroutines.launch
-import com.example.scanner.PdfManager
 import com.example.scanner.QrBarcodeParser
 import com.example.ui.components.PinLockScreen
 import com.example.ui.components.ScannerBottomNavBar
 import com.example.ui.screens.ActiveScannerScreen
+import com.example.ui.screens.AuthScreen
+import com.example.ui.screens.DetailScanBottomSheetContent
 import com.example.ui.screens.DocumentEditorScreen
-import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.HistoryScreen
+import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.OcrScreen
 import com.example.ui.screens.PdfToolboxScreen
 import com.example.ui.screens.PremiumScreen
@@ -58,6 +55,10 @@ import com.example.ui.theme.ScannerProTheme
 import com.example.viewmodel.AppTab
 import com.example.viewmodel.ScannerMode
 import com.example.viewmodel.ScannerViewModel
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.auth
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -87,13 +88,31 @@ fun AppContent(viewModel: ScannerViewModel, activity: ComponentActivity) {
 
     var showAuthForPremium by remember { mutableStateOf(false) }
     var pendingPremiumPlan by remember { mutableStateOf<String?>(null) }
+    var pendingRestorePurchases by remember { mutableStateOf(false) }
+
+    suspend fun restorePremiumFromCloud(user: FirebaseUser) {
+        val profile = profileRepository.getUserProfile(user.uid).getOrNull()
+        if (profile?.isPremium == true) {
+            viewModel.preferences.setPremium(true, "Pro")
+            Toast.makeText(context, "Premium subscription restored!", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(
+                context,
+                "No active Premium subscription found for ${user.email ?: "this account"}.",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
 
     // Sync user profile in Firestore whenever signed in
     LaunchedEffect(currentUser?.uid) {
         val signedInUser = currentUser
         if (signedInUser != null) {
             val isPrem = viewModel.preferences.isPremium.value
-            profileRepository.syncUserProfileOnLogin(signedInUser, isPrem)
+            val profile = profileRepository.syncUserProfileOnLogin(signedInUser, isPrem).getOrNull()
+            if (profile?.isPremium == true && !viewModel.preferences.isPremium.value) {
+                viewModel.preferences.setPremium(true, "Pro")
+            }
         }
     }
 
@@ -104,16 +123,31 @@ fun AppContent(viewModel: ScannerViewModel, activity: ComponentActivity) {
         showAuthOverlay = showAuthForPremium,
         onRequirePremiumLogin = { plan ->
             pendingPremiumPlan = plan
+            pendingRestorePurchases = false
             showAuthForPremium = true
+        },
+        onRestorePurchases = {
+            val user = Firebase.auth.currentUser
+            if (user != null) {
+                scope.launch { restorePremiumFromCloud(user) }
+            } else {
+                pendingPremiumPlan = null
+                pendingRestorePurchases = true
+                showAuthForPremium = true
+            }
         },
         onDismissAuthOverlay = {
             showAuthForPremium = false
             pendingPremiumPlan = null
+            pendingRestorePurchases = false
         },
         onAuthSuccessForPremium = {
             showAuthForPremium = false
             val plan = pendingPremiumPlan
+            val shouldRestore = pendingRestorePurchases
             pendingPremiumPlan = null
+            pendingRestorePurchases = false
+
             if (plan != null) {
                 viewModel.preferences.setPremium(true)
                 viewModel.preferences.setPremiumPlan(plan)
@@ -124,6 +158,13 @@ fun AppContent(viewModel: ScannerViewModel, activity: ComponentActivity) {
                     }
                 }
                 Toast.makeText(context, "Signed in & Alif Scanner Pro Premium activated!", Toast.LENGTH_SHORT).show()
+            } else if (shouldRestore) {
+                scope.launch {
+                    val user = Firebase.auth.currentUser
+                    if (user != null) {
+                        restorePremiumFromCloud(user)
+                    }
+                }
             }
         },
         onPremiumPlanChanged = { isPrem ->
@@ -142,6 +183,7 @@ fun AppContent(viewModel: ScannerViewModel, activity: ComponentActivity) {
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScannerApp(
     viewModel: ScannerViewModel,
@@ -149,6 +191,7 @@ fun ScannerApp(
     currentUser: FirebaseUser? = null,
     showAuthOverlay: Boolean = false,
     onRequirePremiumLogin: (String) -> Unit = {},
+    onRestorePurchases: () -> Unit = {},
     onDismissAuthOverlay: () -> Unit = {},
     onAuthSuccessForPremium: () -> Unit = {},
     onPremiumPlanChanged: (Boolean) -> Unit = {},
@@ -175,16 +218,23 @@ fun ScannerApp(
     val isPdfToolsActive by viewModel.isPdfToolsActive.collectAsState()
     val isQrGeneratorActive by viewModel.isQrGeneratorActive.collectAsState()
     val idCardFront by viewModel.idCardFront.collectAsState()
+    val selectedDetailScan by viewModel.selectedDetailScan.collectAsState()
 
     // History data
     val filteredScans by viewModel.filteredScans.collectAsState()
-    val privateScans by viewModel.privateScans.collectAsState()
+    val privateScans by viewModel.filteredPrivateScans.collectAsState()
     val folders by viewModel.folders.collectAsState()
     val searchQuery by viewModel.historySearchQuery.collectAsState()
     val filterType by viewModel.historyFilterType.collectAsState()
     val selectedFolder by viewModel.historySelectedFolder.collectAsState()
     val sortByNewest by viewModel.sortByNewest.collectAsState()
     val isPrivateUnlocked by viewModel.isPrivateFolderUnlocked.collectAsState()
+
+    val hasAnyOverlay = isScannerActive || isDocumentEditorActive || isOcrViewerActive || isPdfToolsActive || isQrGeneratorActive || showAuthOverlay
+
+    BackHandler(enabled = !isAppLocked && !hasAnyOverlay && currentTab != AppTab.HOME) {
+        viewModel.setTab(AppTab.HOME)
+    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -230,7 +280,7 @@ fun ScannerApp(
                                     onOpenQrGenerator = { viewModel.openQrGenerator() },
                                     onSelectScanItem = { viewModel.selectDetailScan(it) },
                                     onImportImage = { uri ->
-                                        handleImportedImage(viewModel, uri)
+                                        viewModel.importImageUri(uri)
                                     }
                                 )
                             }
@@ -269,6 +319,7 @@ fun ScannerApp(
                                         viewModel.preferences.setPremiumPlan(plan)
                                         onPremiumPlanChanged(true)
                                     },
+                                    onRestorePurchases = onRestorePurchases,
                                     onDeactivatePlan = {
                                         viewModel.preferences.setPremium(false)
                                         viewModel.preferences.setPremiumPlan("free")
@@ -315,19 +366,27 @@ fun ScannerApp(
                                     viewModel.runOcrOnBitmap(bmp)
                                 },
                                 onCloseScanner = { viewModel.closeScanner() },
-                                onDismissScanResult = { viewModel.onCodeScanned("", "") },
+                                onDismissScanResult = { viewModel.dismissScanResult() },
                                 onSaveBatch = {
                                     viewModel.saveAllBatchItems()
                                     Toast.makeText(context, "Batch saved to history!", Toast.LENGTH_SHORT).show()
                                 },
                                 onClearBatch = { viewModel.clearBatch() },
                                 onExportBatchCsv = {
-                                    val file = viewModel.exportBatchAsCsv(context)
-                                    QrBarcodeParser.shareText(context, file.readText(), "Exported CSV Scans")
+                                    try {
+                                        val file = viewModel.exportBatchAsCsv(context)
+                                        QrBarcodeParser.shareText(context, file.readText(), "Exported CSV Scans")
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
                                 },
                                 onExportBatchTxt = {
-                                    val file = viewModel.exportBatchAsTxt(context)
-                                    QrBarcodeParser.shareText(context, file.readText(), "Exported TXT Scans")
+                                    try {
+                                        val file = viewModel.exportBatchAsTxt(context)
+                                        QrBarcodeParser.shareText(context, file.readText(), "Exported TXT Scans")
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
                                 },
                                 onOpenPremium = {
                                     viewModel.closeScanner()
@@ -425,23 +484,23 @@ fun ScannerApp(
                         onClose = onDismissAuthOverlay
                     )
                 }
+
+                // Detail Scan Bottom Sheet (opened when clicking items in Recent Scans on HomeScreen)
+                if (selectedDetailScan != null) {
+                    val detailItem = selectedDetailScan!!
+                    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+                    ModalBottomSheet(
+                        onDismissRequest = { viewModel.selectDetailScan(null) },
+                        sheetState = sheetState,
+                        containerColor = MaterialTheme.colorScheme.surface
+                    ) {
+                        DetailScanBottomSheetContent(
+                            item = detailItem,
+                            onDismiss = { viewModel.selectDetailScan(null) }
+                        )
+                    }
+                }
             }
         }
-    }
-}
-
-private fun handleImportedImage(viewModel: ScannerViewModel, uri: Uri) {
-    val app = viewModel.getApplication<android.app.Application>()
-    try {
-        val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            val src = ImageDecoder.createSource(app.contentResolver, uri)
-            ImageDecoder.decodeBitmap(src) { d, _, _ -> d.isMutableRequired = true }
-        } else {
-            @Suppress("DEPRECATION")
-            MediaStore.Images.Media.getBitmap(app.contentResolver, uri)
-        }
-        viewModel.addScannedPage(bitmap)
-    } catch (e: Exception) {
-        e.printStackTrace()
     }
 }

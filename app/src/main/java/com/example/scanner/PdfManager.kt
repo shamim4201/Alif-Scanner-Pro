@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.print.PrintAttributes
 import android.print.PrintManager
+import android.widget.Toast
 import androidx.core.content.FileProvider
 import java.io.File
 import java.io.FileInputStream
@@ -101,25 +102,31 @@ object PdfManager {
         val result = mutableListOf<Bitmap>()
         if (!pdfFile.exists()) return result
 
+        var fileDescriptor: ParcelFileDescriptor? = null
+        var pdfRenderer: PdfRenderer? = null
         try {
-            val fileDescriptor = ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY)
-            val pdfRenderer = PdfRenderer(fileDescriptor)
+            fileDescriptor = ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY)
+            pdfRenderer = PdfRenderer(fileDescriptor)
             val pageCount = pdfRenderer.pageCount
 
             for (i in 0 until pageCount) {
                 val page = pdfRenderer.openPage(i)
-                // Render at high resolution (1.5x of points for clarity)
-                val width = (page.width * 1.5f).toInt().coerceIn(400, 2000)
-                val height = (page.height * 1.5f).toInt().coerceIn(600, 3000)
-                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                page.close()
-                result.add(bitmap)
+                try {
+                    val width = (page.width * 1.5f).toInt().coerceIn(400, 1400)
+                    val height = (page.height * 1.5f).toInt().coerceIn(600, 2000)
+                    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                    bitmap.eraseColor(android.graphics.Color.WHITE)
+                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    result.add(bitmap)
+                } finally {
+                    page.close()
+                }
             }
-            pdfRenderer.close()
-            fileDescriptor.close()
         } catch (e: Exception) {
             e.printStackTrace()
+        } finally {
+            try { pdfRenderer?.close() } catch (_: Exception) {}
+            try { fileDescriptor?.close() } catch (_: Exception) {}
         }
         return result
     }
@@ -130,11 +137,13 @@ object PdfManager {
             val pages = renderPdfPagesToBitmaps(context, file)
             allBitmaps.addAll(pages)
         }
+        require(allBitmaps.isNotEmpty()) { "Selected PDFs contain no readable pages." }
         return createPdfFromBitmaps(context, allBitmaps, outputTitle)
     }
 
     fun splitPdf(context: Context, inputFile: File, outputTitlePrefix: String): List<File> {
         val pages = renderPdfPagesToBitmaps(context, inputFile)
+        require(pages.isNotEmpty()) { "PDF contains no readable pages to split." }
         val createdFiles = mutableListOf<File>()
         pages.forEachIndexed { index, bitmap ->
             val pageFile = createPdfFromBitmaps(
@@ -149,6 +158,7 @@ object PdfManager {
 
     fun compressPdf(context: Context, inputFile: File, outputTitle: String, compressionQuality: Int = 60): File {
         val pages = renderPdfPagesToBitmaps(context, inputFile)
+        require(pages.isNotEmpty()) { "PDF contains no readable pages to compress." }
         return createPdfFromBitmaps(context, pages, outputTitle, compressionQuality = compressionQuality)
     }
 
@@ -170,6 +180,7 @@ object PdfManager {
             context.startActivity(chooser)
         } catch (e: Exception) {
             e.printStackTrace()
+            Toast.makeText(context, "Unable to share PDF: ${e.localizedMessage ?: "Error"}", Toast.LENGTH_SHORT).show()
         }
     }
 

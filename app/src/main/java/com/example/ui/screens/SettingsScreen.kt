@@ -398,7 +398,7 @@ fun SettingsScreen(
                 SettingsActionRow(
                     icon = Icons.Filled.Info,
                     title = "App Version",
-                    value = "v1.0.0 (Production)",
+                    value = "v${com.example.BuildConfig.VERSION_NAME} (Production)",
                     onClick = {}
                 )
             }
@@ -557,7 +557,7 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showSignOutDialog = false },
             title = { Text("Sign Out?") },
-            text = { Text("You will need to sign in again with your Google (Gmail) account to continue using Alif Scanner Pro.") },
+            text = { Text("You can continue using free features offline. Sign in again with Google anytime to manage or restore Premium.") },
             confirmButton = {
                 Button(
                     onClick = {

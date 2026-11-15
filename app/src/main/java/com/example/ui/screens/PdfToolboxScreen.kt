@@ -1,11 +1,9 @@
 package com.example.ui.screens
 
 import android.graphics.Bitmap
-import android.graphics.ImageDecoder
 import android.net.Uri
-import android.os.Build
-import android.provider.MediaStore
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -28,7 +26,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CallSplit
 import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.Delete
@@ -41,6 +39,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -88,6 +87,10 @@ fun PdfToolboxScreen(
     onDeletePdf: (ScanItem) -> Unit,
     onClose: () -> Unit
 ) {
+    BackHandler {
+        onClose()
+    }
+
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -99,23 +102,90 @@ fun PdfToolboxScreen(
     var selectedPdfToCompress by remember { mutableStateOf<ScanItem?>(null) }
     var compressQuality by remember { mutableFloatStateOf(60f) }
 
+    // Merge Selection Dialog
+    var showMergePickerDialog by remember { mutableStateOf(false) }
+    var selectedMergeIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+
+    // Split / Compress Picker Dialog when multiple PDFs exist
+    var pickerMode by remember { mutableStateOf<String?>(null) } // "split" or "compress"
+
+    fun runMerge(itemsToMerge: List<ScanItem>) {
+        isProcessing = true
+        processingMsg = "Merging ${itemsToMerge.size} PDFs..."
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val files = itemsToMerge.mapNotNull { it.filePath?.let { p -> File(p) } }.filter { it.exists() }
+                val merged = PdfManager.mergePdfs(context, files, "Merged_Doc_${System.currentTimeMillis() / 1000}")
+                val totalPages = itemsToMerge.sumOf { it.pageCount.coerceAtLeast(1) }
+                val item = ScanItem(
+                    title = merged.nameWithoutExtension,
+                    type = ScanType.PDF_FILE,
+                    content = "Merged ${files.size} documents",
+                    subType = "MERGED_PDF",
+                    filePath = merged.absolutePath,
+                    pageCount = totalPages,
+                    fileSizeFormatted = PdfManager.formatFileSize(merged.length())
+                )
+                withContext(Dispatchers.Main) {
+                    onSaveNewPdf(item)
+                    Toast.makeText(context, "PDFs merged successfully!", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Merge failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            } finally {
+                withContext(Dispatchers.Main) {
+                    isProcessing = false
+                }
+            }
+        }
+    }
+
+    fun runSplit(target: ScanItem) {
+        isProcessing = true
+        processingMsg = "Splitting ${target.title}..."
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val splitFiles = PdfManager.splitPdf(context, File(target.filePath!!), target.title)
+                val newItems = splitFiles.map { f ->
+                    ScanItem(
+                        title = f.nameWithoutExtension,
+                        type = ScanType.PDF_FILE,
+                        content = "Page extracted from ${target.title}",
+                        subType = "SPLIT_PAGE",
+                        filePath = f.absolutePath,
+                        pageCount = 1,
+                        fileSizeFormatted = PdfManager.formatFileSize(f.length())
+                    )
+                }
+                withContext(Dispatchers.Main) {
+                    newItems.forEach { onSaveNewPdf(it) }
+                    Toast.makeText(context, "Created ${splitFiles.size} split page(s)!", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Split failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            } finally {
+                withContext(Dispatchers.Main) {
+                    isProcessing = false
+                }
+            }
+        }
+    }
+
     // Multi-Image to PDF launcher
     val multipleImagesLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia()
     ) { uris: List<Uri> ->
         if (uris.isNotEmpty()) {
             isProcessing = true
-            processingMsg = "Converting ${uris.size} images to PDF..."
+            processingMsg = "Converting ${uris.size} image(s) to PDF..."
             coroutineScope.launch(Dispatchers.IO) {
                 try {
                     val bitmaps = uris.mapNotNull { uri ->
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                            val src = ImageDecoder.createSource(context.contentResolver, uri)
-                            ImageDecoder.decodeBitmap(src) { d, _, _ -> d.isMutableRequired = true }
-                        } else {
-                            @Suppress("DEPRECATION")
-                            MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
-                        }
+                        DocumentProcessor.decodeSampledBitmapFromUri(context, uri, maxDimension = 1600)
                     }
                     if (bitmaps.isNotEmpty()) {
                         val pdfFile = PdfManager.createPdfFromBitmaps(
@@ -123,7 +193,10 @@ fun PdfToolboxScreen(
                             bitmaps = bitmaps,
                             filename = "Converted_Doc_${System.currentTimeMillis() / 1000}"
                         )
-                        val thumbFile = DocumentProcessor.saveBitmapToFile(context, bitmaps.first(), "thumb")
+                        val thumbBmp = DocumentProcessor.createThumbnail(bitmaps.first(), 300)
+                        val thumbFile = DocumentProcessor.saveBitmapToFile(context, thumbBmp, "thumb")
+                        if (thumbBmp !== bitmaps.first()) thumbBmp.recycle()
+
                         val item = ScanItem(
                             title = pdfFile.nameWithoutExtension,
                             type = ScanType.PDF_FILE,
@@ -136,14 +209,20 @@ fun PdfToolboxScreen(
                         )
                         withContext(Dispatchers.Main) {
                             onSaveNewPdf(item)
-                            isProcessing = false
                             Toast.makeText(context, "PDF successfully created!", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(context, "Could not decode selected images", Toast.LENGTH_SHORT).show()
                         }
                     }
                 } catch (e: Exception) {
                     withContext(Dispatchers.Main) {
-                        isProcessing = false
                         Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                } finally {
+                    withContext(Dispatchers.Main) {
+                        isProcessing = false
                     }
                 }
             }
@@ -165,7 +244,7 @@ fun PdfToolboxScreen(
             },
             navigationIcon = {
                 IconButton(onClick = onClose, modifier = Modifier.testTag("pdf_tools_back_btn")) {
-                    Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -226,27 +305,16 @@ fun PdfToolboxScreen(
                             modifier = Modifier.weight(1f).testTag("pdf_action_merge_pdfs"),
                             onClick = {
                                 val pdfsWithFiles = pdfItems.filter { it.filePath != null && File(it.filePath).exists() }
-                                if (pdfsWithFiles.size < 2) {
-                                    Toast.makeText(context, "Scan or import at least 2 PDFs first", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    isProcessing = true
-                                    processingMsg = "Merging selected PDFs..."
-                                    coroutineScope.launch(Dispatchers.IO) {
-                                        val files = pdfsWithFiles.take(2).map { File(it.filePath!!) }
-                                        val merged = PdfManager.mergePdfs(context, files, "Merged_Doc_${System.currentTimeMillis() / 1000}")
-                                        val item = ScanItem(
-                                            title = merged.nameWithoutExtension,
-                                            type = ScanType.PDF_FILE,
-                                            content = "Merged 2 documents",
-                                            subType = "MERGED_PDF",
-                                            filePath = merged.absolutePath,
-                                            fileSizeFormatted = PdfManager.formatFileSize(merged.length())
-                                        )
-                                        withContext(Dispatchers.Main) {
-                                            onSaveNewPdf(item)
-                                            isProcessing = false
-                                            Toast.makeText(context, "PDFs merged successfully!", Toast.LENGTH_SHORT).show()
-                                        }
+                                when {
+                                    pdfsWithFiles.size < 2 -> {
+                                        Toast.makeText(context, "Scan or import at least 2 PDFs first", Toast.LENGTH_SHORT).show()
+                                    }
+                                    pdfsWithFiles.size == 2 -> {
+                                        runMerge(pdfsWithFiles)
+                                    }
+                                    else -> {
+                                        selectedMergeIds = pdfsWithFiles.take(2).map { it.id }.toSet()
+                                        showMergePickerDialog = true
                                     }
                                 }
                             }
@@ -266,12 +334,18 @@ fun PdfToolboxScreen(
                             color = Color(0xFFFB5607),
                             modifier = Modifier.weight(1f).testTag("pdf_action_compress_pdf"),
                             onClick = {
-                                val first = pdfItems.firstOrNull { it.filePath != null && File(it.filePath).exists() }
-                                if (first == null) {
-                                    Toast.makeText(context, "No existing PDF documents to compress", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    selectedPdfToCompress = first
-                                    showCompressDialog = true
+                                val pdfsWithFiles = pdfItems.filter { it.filePath != null && File(it.filePath).exists() }
+                                when {
+                                    pdfsWithFiles.isEmpty() -> {
+                                        Toast.makeText(context, "No existing PDF documents to compress", Toast.LENGTH_SHORT).show()
+                                    }
+                                    pdfsWithFiles.size == 1 -> {
+                                        selectedPdfToCompress = pdfsWithFiles.first()
+                                        showCompressDialog = true
+                                    }
+                                    else -> {
+                                        pickerMode = "compress"
+                                    }
                                 }
                             }
                         )
@@ -283,29 +357,16 @@ fun PdfToolboxScreen(
                             color = Color(0xFFFF006E),
                             modifier = Modifier.weight(1f).testTag("pdf_action_split_pdf"),
                             onClick = {
-                                val first = pdfItems.firstOrNull { it.filePath != null && File(it.filePath).exists() }
-                                if (first == null) {
-                                    Toast.makeText(context, "No PDF documents found to split", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    isProcessing = true
-                                    processingMsg = "Splitting document into individual pages..."
-                                    coroutineScope.launch(Dispatchers.IO) {
-                                        val splitFiles = PdfManager.splitPdf(context, File(first.filePath!!), first.title)
-                                        splitFiles.forEach { f ->
-                                            val splitItem = ScanItem(
-                                                title = f.nameWithoutExtension,
-                                                type = ScanType.PDF_FILE,
-                                                content = "Page extracted from ${first.title}",
-                                                subType = "SPLIT_PAGE",
-                                                filePath = f.absolutePath,
-                                                fileSizeFormatted = PdfManager.formatFileSize(f.length())
-                                            )
-                                            onSaveNewPdf(splitItem)
-                                        }
-                                        withContext(Dispatchers.Main) {
-                                            isProcessing = false
-                                            Toast.makeText(context, "Created ${splitFiles.size} split pages!", Toast.LENGTH_SHORT).show()
-                                        }
+                                val pdfsWithFiles = pdfItems.filter { it.filePath != null && File(it.filePath).exists() }
+                                when {
+                                    pdfsWithFiles.isEmpty() -> {
+                                        Toast.makeText(context, "No PDF documents found to split", Toast.LENGTH_SHORT).show()
+                                    }
+                                    pdfsWithFiles.size == 1 -> {
+                                        runSplit(pdfsWithFiles.first())
+                                    }
+                                    else -> {
+                                        pickerMode = "split"
                                     }
                                 }
                             }
@@ -425,17 +486,20 @@ fun PdfToolboxScreen(
                                     content = "Compressed version of ${target.title}",
                                     subType = "COMPRESSED_PDF",
                                     filePath = compressedFile.absolutePath,
+                                    pageCount = target.pageCount.coerceAtLeast(1),
                                     fileSizeFormatted = PdfManager.formatFileSize(compressedFile.length())
                                 )
                                 withContext(Dispatchers.Main) {
                                     onSaveNewPdf(newItem)
-                                    isProcessing = false
                                     Toast.makeText(context, "Compressed to ${newItem.fileSizeFormatted}!", Toast.LENGTH_SHORT).show()
                                 }
                             } catch (e: Exception) {
                                 withContext(Dispatchers.Main) {
-                                    isProcessing = false
                                     Toast.makeText(context, "Compression error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            } finally {
+                                withContext(Dispatchers.Main) {
+                                    isProcessing = false
                                 }
                             }
                         }
@@ -446,6 +510,112 @@ fun PdfToolboxScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showCompressDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Merge PDF Picker Dialog (when 3+ PDFs exist)
+    if (showMergePickerDialog) {
+        val availablePdfs = pdfItems.filter { it.filePath != null && File(it.filePath).exists() }
+        AlertDialog(
+            onDismissRequest = { showMergePickerDialog = false },
+            title = { Text("Select PDFs to Merge") },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    availablePdfs.forEach { pdf ->
+                        val checked = selectedMergeIds.contains(pdf.id)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    selectedMergeIds = if (checked) {
+                                        selectedMergeIds - pdf.id
+                                    } else {
+                                        selectedMergeIds + pdf.id
+                                    }
+                                }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = checked,
+                                onCheckedChange = { isChecked ->
+                                    selectedMergeIds = if (isChecked) {
+                                        selectedMergeIds + pdf.id
+                                    } else {
+                                        selectedMergeIds - pdf.id
+                                    }
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(pdf.title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                Text(pdf.fileSizeFormatted, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = selectedMergeIds.size >= 2,
+                    onClick = {
+                        val chosen = availablePdfs.filter { selectedMergeIds.contains(it.id) }
+                        showMergePickerDialog = false
+                        if (chosen.size >= 2) runMerge(chosen)
+                    }
+                ) {
+                    Text("Merge (${selectedMergeIds.size})")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMergePickerDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Single PDF Picker Dialog for Split / Compress (when 2+ PDFs exist)
+    if (pickerMode != null) {
+        val mode = pickerMode!!
+        val availablePdfs = pdfItems.filter { it.filePath != null && File(it.filePath).exists() }
+        AlertDialog(
+            onDismissRequest = { pickerMode = null },
+            title = { Text(if (mode == "split") "Choose PDF to Split" else "Choose PDF to Compress") },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    availablePdfs.forEach { pdf ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    pickerMode = null
+                                    if (mode == "split") {
+                                        runSplit(pdf)
+                                    } else {
+                                        selectedPdfToCompress = pdf
+                                        showCompressDialog = true
+                                    }
+                                }
+                                .padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Filled.PictureAsPdf, contentDescription = null, tint = Color(0xFFE63946))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(pdf.title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                Text("${pdf.fileSizeFormatted} • ${pdf.pageCount} page(s)", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { pickerMode = null }) {
                     Text("Cancel")
                 }
             }

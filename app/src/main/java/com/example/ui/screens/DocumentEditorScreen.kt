@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import android.graphics.Bitmap
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -56,6 +57,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -88,8 +90,16 @@ fun DocumentEditorScreen(
     onSaveDocument: (title: String, folder: String, saveAsPdf: Boolean, isPrivate: Boolean) -> Unit,
     onClose: () -> Unit
 ) {
-    if (pages.isEmpty()) {
+    BackHandler {
         onClose()
+    }
+
+    LaunchedEffect(pages.isEmpty()) {
+        if (pages.isEmpty()) {
+            onClose()
+        }
+    }
+    if (pages.isEmpty()) {
         return
     }
 

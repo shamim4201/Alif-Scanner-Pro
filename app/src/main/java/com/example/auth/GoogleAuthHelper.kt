@@ -7,7 +7,9 @@ import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
+import android.content.ContextWrapper
 import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.NoCredentialException
 import com.example.R
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
@@ -87,6 +89,12 @@ object GoogleAuthHelper {
         }
     }
 
+    private tailrec fun Context.findActivity(): Activity? = when (this) {
+        is Activity -> this
+        is ContextWrapper -> baseContext.findActivity()
+        else -> null
+    }
+
     fun onGoogleSignInClicked(
         context: Context,
         credentialManager: CredentialManager,
@@ -109,7 +117,7 @@ object GoogleAuthHelper {
 
         scope.launch {
             try {
-                val activityContext = context as? Activity ?: context
+                val activityContext = context.findActivity() ?: context
                 val result = credentialManager.getCredential(activityContext, request)
                 val credential = result.credential
                 if (credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
@@ -123,6 +131,9 @@ object GoogleAuthHelper {
             } catch (e: GetCredentialCancellationException) {
                 Log.w(TAG, "Google Sign-In flow cancelled or dismissed: ${e.message}", e)
                 onAuthCancelled()
+            } catch (e: NoCredentialException) {
+                Log.e(TAG, "No Google account available", e)
+                onAuthError("No Google account found on this device. Please sign in to Google on your phone and try again.")
             } catch (e: Exception) {
                 Log.e(TAG, "Google Sign-In failed", e)
                 onAuthError(e.localizedMessage ?: "Google Sign-In failed. Please try again.")

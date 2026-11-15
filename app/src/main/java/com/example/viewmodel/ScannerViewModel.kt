@@ -139,6 +139,26 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
         _historySelectedFolder,
         _sortByNewest
     ) { scans, query, typeFilter, folderFilter, newest ->
+        filterAndSortScans(scans, query, typeFilter, folderFilter, newest)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val filteredPrivateScans: StateFlow<List<ScanItem>> = combine(
+        privateScans,
+        _historySearchQuery,
+        _historyFilterType,
+        _historySelectedFolder,
+        _sortByNewest
+    ) { scans, query, typeFilter, folderFilter, newest ->
+        filterAndSortScans(scans, query, typeFilter, folderFilter, newest)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private fun filterAndSortScans(
+        scans: List<ScanItem>,
+        query: String,
+        typeFilter: ScanType?,
+        folderFilter: String?,
+        newest: Boolean
+    ): List<ScanItem> {
         var list = scans
         if (typeFilter != null) {
             list = list.filter { it.type == typeFilter }
@@ -151,12 +171,15 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
                 it.title.contains(query, ignoreCase = true) || it.content.contains(query, ignoreCase = true)
             }
         }
-        if (newest) {
+        return if (newest) {
             list.sortedByDescending { it.timestamp }
         } else {
             list.sortedBy { it.timestamp }
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }
+
+    private var lastScannedRaw: String = ""
+    private var lastScannedTimestampMs: Long = 0L
 
     private var toneGen: ToneGenerator? = null
 
@@ -222,11 +245,25 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
         if (_idCardFront.value == null) {
             _idCardFront.value = bitmap
         } else {
-            val front = _idCardFront.value!!
-            val merged = DocumentProcessor.mergeIdCard(front, bitmap)
+            val front = _idCardFront.value ?: return
             _idCardFront.value = null
-            addScannedPage(merged)
             _isScannerActive.value = false
+            viewModelScope.launch(Dispatchers.Default) {
+                val merged = DocumentProcessor.mergeIdCard(front, bitmap)
+                val processed = DocumentProcessor.applyFilterAndTransform(
+                    source = merged,
+                    filter = DocumentFilter.MAGIC_COLOR
+                )
+                val page = ScannedPage(
+                    originalBitmap = merged,
+                    processedBitmap = processed,
+                    filter = DocumentFilter.MAGIC_COLOR
+                )
+                withContext(Dispatchers.Main) {
+                    _scannedPages.value = _scannedPages.value + page
+                    openDocumentEditor()
+                }
+            }
         }
     }
 
@@ -294,12 +331,25 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun dismissScanResult() {
+        _lastDetectedCode.value = null
+    }
+
     // QR & Barcode Detection handler
     fun onCodeScanned(rawValue: String, format: String) {
-        val currentPair = _lastDetectedCode.value
-        if (currentPair?.first == rawValue && System.currentTimeMillis() % 1000 < 600) {
+        if (rawValue.isBlank()) return
+
+        // Avoid overwriting/duplicating while the single-scan sheet is open
+        if (_scannerMode.value != ScannerMode.BATCH && _lastDetectedCode.value != null) {
             return
         }
+
+        val now = System.currentTimeMillis()
+        if (rawValue == lastScannedRaw && (now - lastScannedTimestampMs) < 2000L) {
+            return
+        }
+        lastScannedRaw = rawValue
+        lastScannedTimestampMs = now
 
         triggerScanFeedback()
 
@@ -389,46 +439,87 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
         return file
     }
 
+    fun importImageUri(uri: android.net.Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val app = getApplication<Application>()
+            val bitmap = DocumentProcessor.decodeSampledBitmapFromUri(app, uri, maxDimension = 1600)
+            if (bitmap != null) {
+                val processed = DocumentProcessor.applyFilterAndTransform(
+                    source = bitmap,
+                    filter = DocumentFilter.MAGIC_COLOR
+                )
+                val page = ScannedPage(
+                    originalBitmap = bitmap,
+                    processedBitmap = processed,
+                    filter = DocumentFilter.MAGIC_COLOR
+                )
+                withContext(Dispatchers.Main) {
+                    _scannedPages.value = _scannedPages.value + page
+                    openDocumentEditor()
+                }
+            } else {
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(app, "Could not load selected image", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     // Document Scanning Page Management
     fun addScannedPage(bitmap: Bitmap) {
-        val processed = DocumentProcessor.applyFilterAndTransform(
-            source = bitmap,
-            filter = DocumentFilter.MAGIC_COLOR
-        )
-        val page = ScannedPage(
-            originalBitmap = bitmap,
-            processedBitmap = processed,
-            filter = DocumentFilter.MAGIC_COLOR
-        )
-        _scannedPages.value = _scannedPages.value + page
-        openDocumentEditor()
+        viewModelScope.launch(Dispatchers.Default) {
+            val processed = DocumentProcessor.applyFilterAndTransform(
+                source = bitmap,
+                filter = DocumentFilter.MAGIC_COLOR
+            )
+            val page = ScannedPage(
+                originalBitmap = bitmap,
+                processedBitmap = processed,
+                filter = DocumentFilter.MAGIC_COLOR
+            )
+            withContext(Dispatchers.Main) {
+                _scannedPages.value = _scannedPages.value + page
+                openDocumentEditor()
+            }
+        }
     }
 
     fun updatePageFilter(pageIndex: Int, filter: DocumentFilter) {
-        val current = _scannedPages.value.toMutableList()
-        if (pageIndex in current.indices) {
-            val p = current[pageIndex]
-            p.filter = filter
-            p.processedBitmap = DocumentProcessor.applyFilterAndTransform(
-                source = p.originalBitmap,
+        val current = _scannedPages.value
+        val target = current.getOrNull(pageIndex) ?: return
+        val pageId = target.id
+        viewModelScope.launch(Dispatchers.Default) {
+            val updatedBmp = DocumentProcessor.applyFilterAndTransform(
+                source = target.originalBitmap,
                 filter = filter,
-                rotationDegrees = p.rotation
+                rotationDegrees = target.rotation
             )
-            _scannedPages.value = current
+            withContext(Dispatchers.Main) {
+                val updatedList = _scannedPages.value.map { page ->
+                    if (page.id == pageId) page.copy(filter = filter, processedBitmap = updatedBmp) else page
+                }
+                _scannedPages.value = updatedList
+            }
         }
     }
 
     fun rotatePage(pageIndex: Int) {
-        val current = _scannedPages.value.toMutableList()
-        if (pageIndex in current.indices) {
-            val p = current[pageIndex]
-            p.rotation = (p.rotation + 90) % 360
-            p.processedBitmap = DocumentProcessor.applyFilterAndTransform(
-                source = p.originalBitmap,
-                filter = p.filter,
-                rotationDegrees = p.rotation
+        val current = _scannedPages.value
+        val target = current.getOrNull(pageIndex) ?: return
+        val pageId = target.id
+        val newRotation = (target.rotation + 90) % 360
+        viewModelScope.launch(Dispatchers.Default) {
+            val updatedBmp = DocumentProcessor.applyFilterAndTransform(
+                source = target.originalBitmap,
+                filter = target.filter,
+                rotationDegrees = newRotation
             )
-            _scannedPages.value = current
+            withContext(Dispatchers.Main) {
+                val updatedList = _scannedPages.value.map { page ->
+                    if (page.id == pageId) page.copy(rotation = newRotation, processedBitmap = updatedBmp) else page
+                }
+                _scannedPages.value = updatedList
+            }
         }
     }
 
@@ -471,15 +562,17 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
             val app = getApplication<Application>()
             val bitmaps = pages.map { it.processedBitmap }
 
-            // Save first page as thumbnail
-            val thumbFile = DocumentProcessor.saveBitmapToFile(app, bitmaps.first(), "thumb")
+            // Save downsampled thumbnail for crisp, OOM-free History list scrolling
+            val thumbBmp = DocumentProcessor.createThumbnail(bitmaps.first(), 300)
+            val thumbFile = DocumentProcessor.saveBitmapToFile(app, thumbBmp, "thumb")
+            if (thumbBmp !== bitmaps.first()) thumbBmp.recycle()
 
             val (filePath, type, subType, sizeFormatted) = if (saveAsPdf) {
                 val pdfFile = PdfManager.createPdfFromBitmaps(
                     context = app,
                     bitmaps = bitmaps,
                     filename = title,
-                    pageSize = "A4"
+                    pageSize = preferences.pdfPageSize.value
                 )
                 Tuple4(pdfFile.absolutePath, ScanType.PDF_FILE, "PDF_PAGES", PdfManager.formatFileSize(pdfFile.length()))
             } else {
@@ -488,7 +581,7 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
             }
 
             val scanItem = ScanItem(
-                title = title,
+                title = title.ifBlank { "Scanned_Doc" },
                 type = type,
                 content = "Scanned document with ${pages.size} page(s)",
                 subType = subType,
@@ -513,12 +606,13 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
     // OCR Execution
     fun runOcrOnBitmap(bitmap: Bitmap, onComplete: ((String) -> Unit)? = null) {
         _isOcrLoading.value = true
+        _extractedOcrText.value = ""
+        openOcrViewer()
         viewModelScope.launch(Dispatchers.IO) {
             val extracted = OcrManager.extractTextFromBitmap(bitmap)
             withContext(Dispatchers.Main) {
                 _extractedOcrText.value = extracted
                 _isOcrLoading.value = false
-                openOcrViewer(extracted)
                 onComplete?.invoke(extracted)
             }
         }
@@ -638,9 +732,22 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    private fun clearScanStorageDirectories() {
+        val app = getApplication<Application>()
+        listOf("pdfs", "scans", "exports").forEach { dirName ->
+            File(app.filesDir, dirName).deleteRecursively()
+        }
+        app.cacheDir.listFiles()?.forEach { child ->
+            if (child.name.startsWith("snap_") || child.name == "images") {
+                child.deleteRecursively()
+            }
+        }
+    }
+
     fun clearAllHistory() {
         viewModelScope.launch(Dispatchers.IO) {
             scanDao.clearAll()
+            clearScanStorageDirectories()
         }
     }
 
@@ -648,7 +755,7 @@ class ScannerViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch(Dispatchers.IO) {
             scanDao.clearAll()
             preferences.clearAllPreferences()
-            getApplication<Application>().filesDir.deleteRecursively()
+            clearScanStorageDirectories()
         }
     }
 }

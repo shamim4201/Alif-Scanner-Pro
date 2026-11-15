@@ -3,6 +3,7 @@ package com.example.ui.screens
 import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -101,6 +102,10 @@ fun ActiveScannerScreen(
     onExportBatchTxt: () -> Unit,
     onOpenPremium: () -> Unit
 ) {
+    BackHandler {
+        onCloseScanner()
+    }
+
     val context = LocalContext.current
     var hasCameraPermission by remember {
         mutableStateOf(

@@ -1,6 +1,16 @@
 package com.example.ui.screens
 
+import android.content.Intent
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.pdf.PdfDocument
+import android.os.Build
+import android.text.Layout
+import android.text.StaticLayout
+import android.text.TextPaint
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,7 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
@@ -39,6 +49,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,9 +58,14 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import com.example.scanner.PdfManager
 import com.example.scanner.QrBarcodeParser
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileOutputStream
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,7 +75,12 @@ fun OcrScreen(
     onSaveOcr: (title: String, text: String) -> Unit,
     onClose: () -> Unit
 ) {
+    BackHandler {
+        onClose()
+    }
+
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     var editableText by remember(initialText) { mutableStateOf(initialText) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
@@ -91,7 +112,7 @@ fun OcrScreen(
             },
             navigationIcon = {
                 IconButton(onClick = onClose, modifier = Modifier.testTag("ocr_btn_back")) {
-                    Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                 }
             },
             actions = {
@@ -250,15 +271,38 @@ fun OcrScreen(
                 ) {
                     OutlinedButton(
                         onClick = {
-                            // Export as TXT file
-                            try {
-                                val storageDir = File(context.filesDir, "exports").apply { if (!exists()) mkdirs() }
-                                val txtFile = File(storageDir, "ocr_note_${System.currentTimeMillis() / 1000}.txt")
-                                txtFile.writeText(editableText)
-                                QrBarcodeParser.shareText(context, editableText, "Share TXT Note")
-                                Toast.makeText(context, "Exported: ${txtFile.name}", Toast.LENGTH_SHORT).show()
-                            } catch (e: Exception) {
-                                e.printStackTrace()
+                            if (editableText.isBlank()) {
+                                Toast.makeText(context, "No text to export", Toast.LENGTH_SHORT).show()
+                                return@OutlinedButton
+                            }
+                            coroutineScope.launch(Dispatchers.IO) {
+                                try {
+                                    val storageDir = File(context.filesDir, "exports").apply { if (!exists()) mkdirs() }
+                                    val txtFile = File(storageDir, "ocr_note_${System.currentTimeMillis() / 1000}.txt")
+                                    txtFile.writeText(editableText)
+                                    val uri = FileProvider.getUriForFile(
+                                        context,
+                                        "${context.packageName}.fileprovider",
+                                        txtFile
+                                    )
+                                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_STREAM, uri)
+                                        putExtra(Intent.EXTRA_TEXT, editableText)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    val chooser = Intent.createChooser(sendIntent, "Share TXT Note").apply {
+                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                    }
+                                    withContext(Dispatchers.Main) {
+                                        context.startActivity(chooser)
+                                        Toast.makeText(context, "Exported: ${txtFile.name}", Toast.LENGTH_SHORT).show()
+                                    }
+                                } catch (e: Exception) {
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
                             }
                         },
                         modifier = Modifier.weight(1f).testTag("ocr_export_txt_btn"),
@@ -271,30 +315,21 @@ fun OcrScreen(
 
                     OutlinedButton(
                         onClick = {
-                            // Quick text to PDF conversion
-                            try {
-                                val bmp = android.graphics.Bitmap.createBitmap(595, 842, android.graphics.Bitmap.Config.ARGB_8888)
-                                val canvas = android.graphics.Canvas(bmp)
-                                canvas.drawColor(android.graphics.Color.WHITE)
-                                val paint = android.graphics.Paint().apply {
-                                    color = android.graphics.Color.BLACK
-                                    textSize = 14f
-                                    isAntiAlias = true
+                            if (editableText.isBlank()) {
+                                Toast.makeText(context, "No text to export", Toast.LENGTH_SHORT).show()
+                                return@OutlinedButton
+                            }
+                            coroutineScope.launch(Dispatchers.IO) {
+                                try {
+                                    val pdfFile = createMultiPageTextPdf(context, editableText)
+                                    withContext(Dispatchers.Main) {
+                                        PdfManager.sharePdf(context, pdfFile)
+                                    }
+                                } catch (e: Exception) {
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, "PDF export failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
                                 }
-                                val lines = editableText.split("\n")
-                                var y = 40f
-                                for (line in lines.take(45)) {
-                                    canvas.drawText(line.take(70), 30f, y, paint)
-                                    y += 18f
-                                }
-                                val pdfFile = PdfManager.createPdfFromBitmaps(
-                                    context,
-                                    listOf(bmp),
-                                    "OCR_Note_${System.currentTimeMillis() / 1000}"
-                                )
-                                PdfManager.sharePdf(context, pdfFile)
-                            } catch (e: Exception) {
-                                e.printStackTrace()
                             }
                         },
                         modifier = Modifier.weight(1f).testTag("ocr_export_pdf_btn"),
@@ -308,4 +343,67 @@ fun OcrScreen(
             }
         }
     }
+}
+
+private fun createMultiPageTextPdf(context: android.content.Context, text: String): File {
+    val storageDir = File(context.filesDir, "pdfs").apply { if (!exists()) mkdirs() }
+    val outputFile = File(storageDir, "OCR_Note_${System.currentTimeMillis() / 1000}.pdf")
+
+    val pageWidth = PdfManager.PAGE_WIDTH_A4
+    val pageHeight = PdfManager.PAGE_HEIGHT_A4
+    val margin = 40f
+    val contentWidth = (pageWidth - margin * 2).toInt()
+    val maxContentHeight = pageHeight - margin * 2
+
+    val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.BLACK
+        textSize = 12f
+    }
+
+    val staticLayout = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        StaticLayout.Builder.obtain(text, 0, text.length, textPaint, contentWidth)
+            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+            .setLineSpacing(4f, 1.15f)
+            .setIncludePad(false)
+            .build()
+    } else {
+        @Suppress("DEPRECATION")
+        StaticLayout(text, textPaint, contentWidth, Layout.Alignment.ALIGN_NORMAL, 1.15f, 4f, false)
+    }
+
+    val pdfDocument = PdfDocument()
+    var pageNumber = 1
+    var startLine = 0
+
+    while (startLine < staticLayout.lineCount) {
+        val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create()
+        val page = pdfDocument.startPage(pageInfo)
+        val canvas: Canvas = page.canvas
+        canvas.drawColor(Color.WHITE)
+
+        val startTop = staticLayout.getLineTop(startLine)
+        var endLine = startLine
+        while (endLine < staticLayout.lineCount &&
+            (staticLayout.getLineBottom(endLine) - startTop) <= maxContentHeight
+        ) {
+            endLine++
+        }
+        if (endLine == startLine) endLine++
+
+        canvas.save()
+        canvas.translate(margin, margin - startTop)
+        canvas.clipRect(0f, startTop.toFloat(), contentWidth.toFloat(), staticLayout.getLineBottom(endLine - 1).toFloat())
+        staticLayout.draw(canvas)
+        canvas.restore()
+
+        pdfDocument.finishPage(page)
+        startLine = endLine
+        pageNumber++
+    }
+
+    FileOutputStream(outputFile).use { out ->
+        pdfDocument.writeTo(out)
+    }
+    pdfDocument.close()
+    return outputFile
 }

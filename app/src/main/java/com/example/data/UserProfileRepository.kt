@@ -115,6 +115,9 @@ class UserProfileRepository(
                     "email" to safeEmail.take(200),
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
+                if (isPremium) {
+                    updatePayload["isPremium"] = true
+                }
                 if (safePhoto != null) {
                     updatePayload["photoUrl"] = safePhoto
                 }
@@ -172,14 +175,21 @@ class UserProfileRepository(
     }
 
     suspend fun updatePremiumStatus(isPremium: Boolean): Result<Unit> {
-        val uid = requireUserId()
+        val user = auth.currentUser
+            ?: return Result.failure(IllegalStateException("User must be signed in with Google before accessing Firestore."))
+        val uid = user.uid
         val docRef = db.collection("users").document(uid)
         val payload = mapOf<String, Any>(
             "isPremium" to isPremium,
             "updatedAt" to FieldValue.serverTimestamp()
         )
         return try {
-            docRef.update(payload).await()
+            val snap = docRef.get().await()
+            if (snap.exists()) {
+                docRef.update(payload).await()
+            } else {
+                syncUserProfileOnLogin(user, isPremium).getOrThrow()
+            }
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e

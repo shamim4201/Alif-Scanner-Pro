@@ -2,11 +2,8 @@ package com.example.ui.components
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.ImageDecoder
 import android.net.Uri
-import android.os.Build
-import android.provider.MediaStore
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,13 +33,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.FlashOff
@@ -60,6 +59,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,17 +71,21 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.scanner.DocumentProcessor
 import com.example.scanner.OcrManager
 import com.example.scanner.QrBarcodeImageAnalyzer
 import com.example.ui.theme.ScannerCyanAccent
 import com.example.viewmodel.ScannerMode
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.Executors
 
@@ -97,6 +101,7 @@ fun ScannerViewfinder(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val coroutineScope = rememberCoroutineScope()
 
     var camera by remember { mutableStateOf<Camera?>(null) }
     var isFlashOn by remember { mutableStateOf(false) }
@@ -111,49 +116,50 @@ fun ScannerViewfinder(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
-            try {
-                val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    val source = ImageDecoder.createSource(context.contentResolver, uri)
-                    ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
-                        decoder.isMutableRequired = true
+            coroutineScope.launch(Dispatchers.IO) {
+                val bitmap = DocumentProcessor.decodeSampledBitmapFromUri(context, uri, maxDimension = 1600)
+                withContext(Dispatchers.Main) {
+                    if (bitmap == null) {
+                        Toast.makeText(context, "Could not load selected image", Toast.LENGTH_SHORT).show()
+                        return@withContext
                     }
-                } else {
-                    @Suppress("DEPRECATION")
-                    MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
-                }
-
-                when (mode) {
-                    ScannerMode.QR, ScannerMode.BARCODE, ScannerMode.BATCH -> {
-                        // Extract barcode/QR from image
-                        val inputImage = com.google.mlkit.vision.common.InputImage.fromBitmap(bitmap, 0)
-                        val scanner = com.google.mlkit.vision.barcode.BarcodeScanning.getClient()
-                        scanner.process(inputImage).addOnSuccessListener { barcodes ->
-                            if (barcodes.isNotEmpty()) {
-                                val b = barcodes.first()
-                                onCodeScanned(b.rawValue ?: b.displayValue ?: "", "IMAGE_IMPORT")
-                            } else {
-                                android.widget.Toast.makeText(context, "No QR or barcode detected in image", android.widget.Toast.LENGTH_SHORT).show()
-                            }
+                    when (mode) {
+                        ScannerMode.QR, ScannerMode.BARCODE, ScannerMode.BATCH -> {
+                            val inputImage = com.google.mlkit.vision.common.InputImage.fromBitmap(bitmap, 0)
+                            val scanner = com.google.mlkit.vision.barcode.BarcodeScanning.getClient()
+                            scanner.process(inputImage)
+                                .addOnSuccessListener { barcodes ->
+                                    val firstValid = barcodes.firstOrNull { !(it.rawValue ?: it.displayValue).isNullOrBlank() }
+                                    if (firstValid != null) {
+                                        onCodeScanned(firstValid.rawValue ?: firstValid.displayValue ?: "", "IMAGE_IMPORT")
+                                    } else {
+                                        Toast.makeText(context, "No QR or barcode detected in image", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                                .addOnFailureListener {
+                                    Toast.makeText(context, "Failed to scan image", Toast.LENGTH_SHORT).show()
+                                }
+                                .addOnCompleteListener {
+                                    scanner.close()
+                                }
                         }
-                    }
-                    ScannerMode.DOCUMENT -> {
-                        onDocumentCaptured(bitmap)
-                    }
-                    ScannerMode.ID_CARD -> {
-                        onIdCardCaptured(bitmap)
-                    }
-                    ScannerMode.OCR -> {
-                        onOcrCaptured(bitmap)
+                        ScannerMode.DOCUMENT -> onDocumentCaptured(bitmap)
+                        ScannerMode.ID_CARD -> onIdCardCaptured(bitmap)
+                        ScannerMode.OCR -> onOcrCaptured(bitmap)
                     }
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
         }
     }
 
+    var cameraProviderRef by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+
     DisposableEffect(Unit) {
         onDispose {
+            try {
+                cameraProviderRef?.unbindAll()
+            } catch (_: Exception) {
+            }
             cameraExecutor.shutdown()
         }
     }
@@ -170,31 +176,39 @@ fun ScannerViewfinder(
                 }
                 val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                 cameraProviderFuture.addListener({
-                    val cameraProvider = cameraProviderFuture.get()
-                    val preview = Preview.Builder().build().also {
-                        it.surfaceProvider = previewView.surfaceProvider
-                    }
-
-                    val capture = ImageCapture.Builder()
-                        .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                        .build()
-                    imageCapture = capture
-
-                    val analyzer = ImageAnalysis.Builder()
-                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                        .build()
-                        .also {
-                            it.setAnalyzer(
-                                cameraExecutor,
-                                QrBarcodeImageAnalyzer { raw, format ->
-                                    onCodeScanned(raw, format)
-                                }
-                            )
+                    try {
+                        val cameraProvider = cameraProviderFuture.get()
+                        cameraProviderRef = cameraProvider
+                        val preview = Preview.Builder().build().also {
+                            it.surfaceProvider = previewView.surfaceProvider
                         }
 
-                    val selector = if (isBackCamera) CameraSelector.DEFAULT_BACK_CAMERA else CameraSelector.DEFAULT_FRONT_CAMERA
+                        val capture = ImageCapture.Builder()
+                            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                            .build()
+                        imageCapture = capture
 
-                    try {
+                        val analyzer = ImageAnalysis.Builder()
+                            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                            .build()
+                            .also {
+                                it.setAnalyzer(
+                                    cameraExecutor,
+                                    QrBarcodeImageAnalyzer { raw, format ->
+                                        onCodeScanned(raw, format)
+                                    }
+                                )
+                            }
+
+                        val preferredSelector = if (isBackCamera) CameraSelector.DEFAULT_BACK_CAMERA else CameraSelector.DEFAULT_FRONT_CAMERA
+                        val selector = if (cameraProvider.hasCamera(preferredSelector)) {
+                            preferredSelector
+                        } else if (cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)) {
+                            CameraSelector.DEFAULT_FRONT_CAMERA
+                        } else {
+                            preferredSelector
+                        }
+
                         cameraProvider.unbindAll()
                         camera = cameraProvider.bindToLifecycle(
                             lifecycleOwner,
@@ -310,7 +324,8 @@ fun ScannerViewfinder(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 40.dp, start = 16.dp, end = 16.dp),
+                .statusBarsPadding()
+                .padding(top = 12.dp, start = 16.dp, end = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -320,7 +335,7 @@ fun ScannerViewfinder(
                     .background(Color.Black.copy(alpha = 0.5f), CircleShape)
                     .testTag("scanner_btn_back")
             ) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "Close", tint = Color.White)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close", tint = Color.White)
             }
 
             // Mode indicator pill
@@ -384,7 +399,8 @@ fun ScannerViewfinder(
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 48.dp),
+                    .navigationBarsPadding()
+                    .padding(bottom = 28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
@@ -418,20 +434,32 @@ fun ScannerViewfinder(
                                     ContextCompat.getMainExecutor(context),
                                     object : ImageCapture.OnImageSavedCallback {
                                         override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                                            isCapturing = false
-                                            val bitmap = BitmapFactory.decodeFile(photoFile.absolutePath)
-                                            if (bitmap != null) {
-                                                when (mode) {
-                                                    ScannerMode.DOCUMENT -> onDocumentCaptured(bitmap)
-                                                    ScannerMode.ID_CARD -> onIdCardCaptured(bitmap)
-                                                    else -> onOcrCaptured(bitmap)
+                                            coroutineScope.launch(Dispatchers.IO) {
+                                                val bitmap = DocumentProcessor.decodeSampledBitmapFromFile(
+                                                    photoFile.absolutePath,
+                                                    maxDimension = 1600
+                                                )
+                                                photoFile.delete()
+                                                withContext(Dispatchers.Main) {
+                                                    isCapturing = false
+                                                    if (bitmap != null) {
+                                                        when (mode) {
+                                                            ScannerMode.DOCUMENT -> onDocumentCaptured(bitmap)
+                                                            ScannerMode.ID_CARD -> onIdCardCaptured(bitmap)
+                                                            else -> onOcrCaptured(bitmap)
+                                                        }
+                                                    } else {
+                                                        Toast.makeText(context, "Could not process captured photo", Toast.LENGTH_SHORT).show()
+                                                    }
                                                 }
                                             }
                                         }
 
                                         override fun onError(exception: ImageCaptureException) {
                                             isCapturing = false
+                                            photoFile.delete()
                                             exception.printStackTrace()
+                                            Toast.makeText(context, "Capture failed: ${exception.message}", Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 )

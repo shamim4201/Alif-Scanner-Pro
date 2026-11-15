@@ -2,13 +2,18 @@ package com.example.scanner
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
+import android.graphics.ImageDecoder
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Rect
+import android.media.ExifInterface
+import android.net.Uri
+import android.os.Build
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
@@ -33,6 +38,90 @@ data class ScannedPage(
 )
 
 object DocumentProcessor {
+
+    fun decodeSampledBitmapFromFile(filePath: String, maxDimension: Int = 1600): Bitmap? {
+        return try {
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(filePath, options)
+            if (options.outWidth <= 0 || options.outHeight <= 0) return null
+
+            var sampleSize = 1
+            while ((options.outWidth / sampleSize) > maxDimension || (options.outHeight / sampleSize) > maxDimension) {
+                sampleSize *= 2
+            }
+
+            val decodeOpts = BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inMutable = true
+            }
+            val raw = BitmapFactory.decodeFile(filePath, decodeOpts) ?: return null
+
+            val exifRotation = try {
+                val exif = ExifInterface(filePath)
+                when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
+                    ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                    ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                    ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                    else -> 0f
+                }
+            } catch (_: Exception) {
+                0f
+            }
+
+            if (exifRotation != 0f) {
+                val matrix = Matrix().apply { postRotate(exifRotation) }
+                val rotated = Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, matrix, true)
+                if (rotated != raw) raw.recycle()
+                rotated
+            } else {
+                raw
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    fun decodeSampledBitmapFromUri(context: Context, uri: Uri, maxDimension: Int = 1600): Bitmap? {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val src = ImageDecoder.createSource(context.contentResolver, uri)
+                ImageDecoder.decodeBitmap(src) { decoder, info, _ ->
+                    decoder.isMutableRequired = true
+                    val w = info.size.width
+                    val h = info.size.height
+                    val longest = maxOf(w, h)
+                    if (longest > maxDimension && longest > 0) {
+                        val scale = maxDimension.toFloat() / longest
+                        decoder.setTargetSize(
+                            (w * scale).toInt().coerceAtLeast(1),
+                            (h * scale).toInt().coerceAtLeast(1)
+                        )
+                    }
+                }
+            } else {
+                val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    BitmapFactory.decodeStream(stream, null, boundsOpts)
+                }
+                if (boundsOpts.outWidth <= 0 || boundsOpts.outHeight <= 0) return null
+                var sampleSize = 1
+                while ((boundsOpts.outWidth / sampleSize) > maxDimension || (boundsOpts.outHeight / sampleSize) > maxDimension) {
+                    sampleSize *= 2
+                }
+                val decodeOpts = BitmapFactory.Options().apply {
+                    inSampleSize = sampleSize
+                    inMutable = true
+                }
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    BitmapFactory.decodeStream(stream, null, decodeOpts)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
 
     fun applyFilterAndTransform(
         source: Bitmap,

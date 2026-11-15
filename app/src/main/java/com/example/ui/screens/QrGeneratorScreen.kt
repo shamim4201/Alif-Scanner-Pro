@@ -555,6 +555,7 @@ private fun saveBitmapToGallery(context: Context, bitmap: Bitmap) {
     try {
         val filename = "QR_${System.currentTimeMillis()}.png"
         val fos: OutputStream?
+        var savedLocationLabel = "Gallery (Pictures/ScannerPro)"
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val resolver = context.contentResolver
@@ -566,15 +567,22 @@ private fun saveBitmapToGallery(context: Context, bitmap: Bitmap) {
             val imageUri: Uri? = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
             fos = imageUri?.let { resolver.openOutputStream(it) }
         } else {
-            val imagesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
-            val subDir = File(imagesDir, "ScannerPro").apply { if (!exists()) mkdirs() }
+            val hasLegacyWrite = context.checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            val baseDir = if (hasLegacyWrite) {
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+            } else {
+                savedLocationLabel = "App Pictures folder"
+                context.getExternalFilesDir(Environment.DIRECTORY_PICTURES) ?: context.filesDir
+            }
+            val subDir = File(baseDir, "ScannerPro").apply { if (!exists()) mkdirs() }
             val file = File(subDir, filename)
             fos = FileOutputStream(file)
         }
 
         fos?.use {
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
-            Toast.makeText(context, "QR saved to Gallery (Pictures/ScannerPro)", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "QR saved to $savedLocationLabel", Toast.LENGTH_LONG).show()
         } ?: run {
             Toast.makeText(context, "Could not open storage stream", Toast.LENGTH_SHORT).show()
         }

@@ -17,7 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backspace
-import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.ClearAll
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -131,7 +131,7 @@ fun PinLockScreen(
                     listOf("1", "2", "3"),
                     listOf("4", "5", "6"),
                     listOf("7", "8", "9"),
-                    listOf("BIO", "0", "DEL")
+                    listOf("CLR", "0", "DEL")
                 )
 
                 for (row in rows) {
@@ -141,23 +141,23 @@ fun PinLockScreen(
                     ) {
                         for (key in row) {
                             when (key) {
-                                "BIO" -> {
+                                "CLR" -> {
                                     Box(
                                         modifier = Modifier
                                             .size(72.dp)
                                             .clip(CircleShape)
                                             .clickable {
-                                                // Biometric quick unlock simulation
-                                                onPinEntered("1234")
+                                                pin = ""
+                                                isError = false
                                             }
-                                            .testTag("pin_bio_btn"),
+                                            .testTag("pin_clr_btn"),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
-                                            Icons.Filled.Fingerprint,
-                                            contentDescription = "Biometrics",
+                                            Icons.Filled.ClearAll,
+                                            contentDescription = "Clear PIN",
                                             tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(32.dp)
+                                            modifier = Modifier.size(28.dp)
                                         )
                                     }
                                 }

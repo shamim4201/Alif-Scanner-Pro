@@ -128,8 +128,11 @@ class UserPreferences(context: Context) {
         _vibrateOnScan.value = true
         _beepOnScan.value = true
         _autoCopy.value = false
+        _defaultFormat.value = "PDF"
         _cloudBackupEnabled.value = false
+        _cloudProvider.value = "Google Drive"
         _pdfPageSize.value = "A4"
+        _appLanguage.value = "English"
     }
 
     companion object {
