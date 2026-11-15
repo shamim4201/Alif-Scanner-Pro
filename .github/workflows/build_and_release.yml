@@ -30,8 +30,13 @@ jobs:
             yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
           fi
 
-      # Decode debug.keystore from debug.keystore.base64 for signing validation
+      # Decode debug.keystore and release upload keystore for signing
       - name: Restore Keystores for Signing
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD || 'alifrelease2026' }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS || 'alifupload' }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD || 'alifrelease2026' }}
         run: |
           if [ -f debug.keystore.base64 ]; then
             base64 -d debug.keystore.base64 > debug.keystore
@@ -39,8 +44,12 @@ jobs:
           if [ ! -f debug.keystore ]; then
             keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
-          if [ ! -f my-upload-key.jks ]; then
-            cp debug.keystore my-upload-key.jks
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
+            printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 -d > my-upload-key.jks
+          elif [ -f my-upload-key.jks.base64 ]; then
+            base64 -d my-upload-key.jks.base64 > my-upload-key.jks
+          elif [ ! -f my-upload-key.jks ]; then
+            keytool -genkeypair -v -keystore my-upload-key.jks -storetype PKCS12 -storepass "$RELEASE_STORE_PASSWORD" -alias "$RELEASE_KEY_ALIAS" -keypass "$RELEASE_KEY_PASSWORD" -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Alif Scanner Pro,OU=Mobile Apps,O=Alif Scanner Pro,L=Dhaka,ST=Dhaka,C=BD"
           fi
 
       - name: Restore google-services.json (if GitHub Secret is set)
@@ -74,6 +83,11 @@ jobs:
           fi
 
       - name: Build Release APK & Play Store AAB
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
+          STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD || 'alifrelease2026' }}
+          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS || 'alifupload' }}
+          KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD || 'alifrelease2026' }}
         run: |
           set -o pipefail
           CMD="./gradlew"
@@ -90,6 +104,8 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
+          echo "AAB Signing Certificate:"
+          keytool -printcert -jarfile app/build/outputs/bundle/release/app-release.aab | grep -E "Owner:|Issuer:|SHA1:|SHA256:" || true
 
       # Upload build logs if failure occurs for instant inspection
       - name: Upload Build Logs on Failure
