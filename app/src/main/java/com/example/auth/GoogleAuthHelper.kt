@@ -1,16 +1,16 @@
 package com.example.auth
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.util.Log
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
-import android.content.ContextWrapper
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.NoCredentialException
-import com.example.R
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
@@ -48,14 +48,19 @@ object GoogleAuthHelper {
         onUnauthenticated: () -> Unit,
         scope: CoroutineScope
     ) {
-        if (Firebase.auth.currentUser != null) {
-            onAuthSuccess()
+        val clientId = resolveWebClientId(context)
+        if (clientId == null) {
+            Log.w(TAG, "default_web_client_id unavailable for auto sign-in")
+            onUnauthenticated()
             return
         }
-        val clientId = try {
-            context.getString(R.string.default_web_client_id)
+        try {
+            if (Firebase.auth.currentUser != null) {
+                onAuthSuccess()
+                return
+            }
         } catch (e: Exception) {
-            Log.w(TAG, "default_web_client_id unavailable for auto sign-in", e)
+            Log.w(TAG, "FirebaseAuth unavailable", e)
             onUnauthenticated()
             return
         }
@@ -95,6 +100,21 @@ object GoogleAuthHelper {
         else -> null
     }
 
+    @SuppressLint("DiscouragedApi")
+    private fun resolveWebClientId(context: Context): String? {
+        return try {
+            val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
+            if (resId != 0) {
+                context.getString(resId).takeIf { it.isNotBlank() }
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to read default_web_client_id", e)
+            null
+        }
+    }
+
     fun onGoogleSignInClicked(
         context: Context,
         credentialManager: CredentialManager,
@@ -103,10 +123,9 @@ object GoogleAuthHelper {
         scope: CoroutineScope,
         onAuthCancelled: () -> Unit = {}
     ) {
-        val clientId = try {
-            context.getString(R.string.default_web_client_id)
-        } catch (e: Exception) {
-            onAuthError("Google Sign-In configuration missing.")
+        val clientId = resolveWebClientId(context)
+        if (clientId == null) {
+            onAuthError("Google Sign-In configuration missing (google-services.json not bundled).")
             return
         }
 
@@ -153,7 +172,11 @@ object GoogleAuthHelper {
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to clear credential state: ${e.message}")
                 } finally {
-                    Firebase.auth.signOut()
+                    try {
+                        Firebase.auth.signOut()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Firebase signOut skipped: ${e.message}")
+                    }
                     onSignOutComplete()
                 }
             }

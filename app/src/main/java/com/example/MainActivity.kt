@@ -82,16 +82,26 @@ fun AppContent(viewModel: ScannerViewModel, activity: ComponentActivity) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val credentialManager = remember(context) { CredentialManager.create(context) }
-    val profileRepository = remember(context) { UserProfileRepository(context) }
-    val currentUser by Firebase.auth.authStateFlow()
-        .collectAsStateWithLifecycle(initialValue = Firebase.auth.currentUser)
+    val isFirebaseReady = remember(context) {
+        com.google.firebase.FirebaseApp.getApps(context).isNotEmpty()
+    }
+    val profileRepository = remember(context, isFirebaseReady) {
+        if (isFirebaseReady) UserProfileRepository(context) else null
+    }
+    val authInstance = remember(isFirebaseReady) {
+        if (isFirebaseReady) Firebase.auth else null
+    }
+    val currentUser by remember(authInstance) {
+        authInstance?.authStateFlow() ?: kotlinx.coroutines.flow.flowOf(null)
+    }.collectAsStateWithLifecycle(initialValue = authInstance?.currentUser)
 
     var showAuthForPremium by remember { mutableStateOf(false) }
     var pendingPremiumPlan by remember { mutableStateOf<String?>(null) }
     var pendingRestorePurchases by remember { mutableStateOf(false) }
 
     suspend fun restorePremiumFromCloud(user: FirebaseUser) {
-        val profile = profileRepository.getUserProfile(user.uid).getOrNull()
+        val repo = profileRepository ?: return
+        val profile = repo.getUserProfile(user.uid).getOrNull()
         if (profile?.isPremium == true) {
             viewModel.preferences.setPremium(true, "Pro")
             Toast.makeText(context, "Premium subscription restored!", Toast.LENGTH_SHORT).show()
@@ -105,11 +115,12 @@ fun AppContent(viewModel: ScannerViewModel, activity: ComponentActivity) {
     }
 
     // Sync user profile in Firestore whenever signed in
-    LaunchedEffect(currentUser?.uid) {
+    LaunchedEffect(currentUser?.uid, profileRepository) {
         val signedInUser = currentUser
-        if (signedInUser != null) {
+        val repo = profileRepository
+        if (signedInUser != null && repo != null) {
             val isPrem = viewModel.preferences.isPremium.value
-            val profile = profileRepository.syncUserProfileOnLogin(signedInUser, isPrem).getOrNull()
+            val profile = repo.syncUserProfileOnLogin(signedInUser, isPrem).getOrNull()
             if (profile?.isPremium == true && !viewModel.preferences.isPremium.value) {
                 viewModel.preferences.setPremium(true, "Pro")
             }
@@ -122,18 +133,34 @@ fun AppContent(viewModel: ScannerViewModel, activity: ComponentActivity) {
         currentUser = currentUser,
         showAuthOverlay = showAuthForPremium,
         onRequirePremiumLogin = { plan ->
-            pendingPremiumPlan = plan
-            pendingRestorePurchases = false
-            showAuthForPremium = true
+            if (!isFirebaseReady) {
+                Toast.makeText(
+                    context,
+                    "Google Sign-In requires google-services.json in this build.",
+                    Toast.LENGTH_SHORT
+                ).show()
+            } else {
+                pendingPremiumPlan = plan
+                pendingRestorePurchases = false
+                showAuthForPremium = true
+            }
         },
         onRestorePurchases = {
-            val user = Firebase.auth.currentUser
-            if (user != null) {
-                scope.launch { restorePremiumFromCloud(user) }
+            if (!isFirebaseReady) {
+                Toast.makeText(
+                    context,
+                    "Cloud restore requires google-services.json in this build.",
+                    Toast.LENGTH_SHORT
+                ).show()
             } else {
-                pendingPremiumPlan = null
-                pendingRestorePurchases = true
-                showAuthForPremium = true
+                val user = authInstance?.currentUser
+                if (user != null) {
+                    scope.launch { restorePremiumFromCloud(user) }
+                } else {
+                    pendingPremiumPlan = null
+                    pendingRestorePurchases = true
+                    showAuthForPremium = true
+                }
             }
         },
         onDismissAuthOverlay = {
@@ -152,15 +179,15 @@ fun AppContent(viewModel: ScannerViewModel, activity: ComponentActivity) {
                 viewModel.preferences.setPremium(true)
                 viewModel.preferences.setPremiumPlan(plan)
                 scope.launch {
-                    val user = Firebase.auth.currentUser
+                    val user = authInstance?.currentUser
                     if (user != null) {
-                        profileRepository.syncUserProfileOnLogin(user, isPremium = true)
+                        profileRepository?.syncUserProfileOnLogin(user, isPremium = true)
                     }
                 }
                 Toast.makeText(context, "Signed in & Alif Scanner Pro Premium activated!", Toast.LENGTH_SHORT).show()
             } else if (shouldRestore) {
                 scope.launch {
-                    val user = Firebase.auth.currentUser
+                    val user = authInstance?.currentUser
                     if (user != null) {
                         restorePremiumFromCloud(user)
                     }
@@ -168,9 +195,9 @@ fun AppContent(viewModel: ScannerViewModel, activity: ComponentActivity) {
             }
         },
         onPremiumPlanChanged = { isPrem ->
-            if (Firebase.auth.currentUser != null) {
+            if (authInstance?.currentUser != null) {
                 scope.launch {
-                    profileRepository.updatePremiumStatus(isPrem)
+                    profileRepository?.updatePremiumStatus(isPrem)
                 }
             }
         },

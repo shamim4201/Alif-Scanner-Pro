@@ -144,7 +144,11 @@ fun RealAdMobBanner(
                 AdView(context).apply {
                     setAdSize(AdSize.BANNER)
                     adUnitId = AdManager.getBannerAdUnitId()
-                    loadAd(AdRequest.Builder().build())
+                    try {
+                        loadAd(AdRequest.Builder().build())
+                    } catch (e: Exception) {
+                        Log.w("AdManager", "Banner ad load failed: ${e.message}")
+                    }
                 }
             }
         )
